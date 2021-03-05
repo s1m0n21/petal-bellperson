@@ -311,9 +311,9 @@ where
                             .map(|((bases, exps), kern)| -> Result<<G as CurveAffine>::Projective, GPUError> {
                                 let mut acc = <G as CurveAffine>::Projective::zero();
                                 let mut chunk = {
-                                    let chunk_size = utils::get_chunk_size(&kern.device);
+                                    let mut chunk_size = utils::get_chunk_size(&kern.device);
                                     if chunk_size == 0 {
-                                        return kern.n;
+                                        chunk_size = kern.n
                                     }
 
                                     chunk_size

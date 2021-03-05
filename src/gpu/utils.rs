@@ -53,9 +53,7 @@ lazy_static::lazy_static! {
 
         core_counts
     };
-}
 
-lazy_static::lazy_static! {
     static ref MAX_WINDOW_SIZE: HashMap::<String, usize> = {
         let mut max_window_size: HashMap<String, usize> = vec![
             ("GeForce RTX 3090".to_string(), 12),
@@ -75,10 +73,8 @@ lazy_static::lazy_static! {
         }) { Err(_) => { }, Ok(_) => { } }
 
         max_window_size
-    }
-}
+    };
 
-lazy_static::lazy_static! {
     static ref CHUNK_SIZE: HashMap::<String, usize> = {
         let mut chunk_size: HashMap<String, usize> = vec![
             ("GeForce RTX 3090".to_string(), 67108864),
@@ -97,7 +93,7 @@ lazy_static::lazy_static! {
         }) { Err(_) => { }, Ok(_) => { } }
 
         chunk_size
-    }
+    };
 }
 
 const DEFAULT_CORE_COUNT: usize = 2560;
@@ -133,7 +129,6 @@ pub fn get_max_window_size(d: &opencl::Device) -> usize {
     }
 }
 
-const DEFAULT_CHUNK_SIZE: usize = 0;
 pub fn get_chunk_size(d: &opencl::Device) -> usize {
     let name = d.name();
     match CHUNK_SIZE.get(&name[..]) {
@@ -143,7 +138,7 @@ pub fn get_chunk_size(d: &opencl::Device) -> usize {
         },
         None => {
             warn!("use default chunk size");
-            DEFAULT_CHUNK_SIZE
+            0
         }
     }
 }

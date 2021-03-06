@@ -15,8 +15,8 @@ use std::time::Instant;
 
 extern crate scoped_threadpool;
 use scoped_threadpool::Pool;
-use crate::gpu::get_max_window_size;
 
+const MAX_WINDOW_SIZE: usize = 10;
 const LOCAL_WORK_SIZE: usize = 256;
 const MEMORY_PADDING: f64 = 0.1f64; // Let 10% of GPU memory be free
 
@@ -52,27 +52,27 @@ where
 
 fn calc_num_groups(core_count: usize, num_windows: usize) -> usize {
     // Observations show that we get the best performance when num_groups * num_windows ~= 2 * CUDA_CORES
-    2 * core_count / num_windows // TODO: 4
+    2 * core_count / num_windows
 }
 
-// fn calc_window_size(n: usize, exp_bits: usize, core_count: usize) -> usize {
-//     // window_size = ln(n / num_groups)
-//     // num_windows = exp_bits / window_size
-//     // num_groups = 2 * core_count / num_windows = 2 * core_count * window_size / exp_bits
-//     // window_size = ln(n / num_groups) = ln(n * exp_bits / (2 * core_count * window_size))
-//     // window_size = ln(exp_bits * n / (2 * core_count)) - ln(window_size)
-//     //
-//     // Thus we need to solve the following equation:
-//     // window_size + ln(window_size) = ln(exp_bits * n / (2 * core_count))
-//     let lower_bound = (((exp_bits * n) as f64) / ((2 * core_count) as f64)).ln();
-//     for w in 0..MAX_WINDOW_SIZE {
-//         if (w as f64) + (w as f64).ln() > lower_bound {
-//             return w;
-//         }
-//     }
-//
-//     MAX_WINDOW_SIZE
-// }
+fn calc_window_size(n: usize, exp_bits: usize, core_count: usize) -> usize {
+    // window_size = ln(n / num_groups)
+    // num_windows = exp_bits / window_size
+    // num_groups = 2 * core_count / num_windows = 2 * core_count * window_size / exp_bits
+    // window_size = ln(n / num_groups) = ln(n * exp_bits / (2 * core_count * window_size))
+    // window_size = ln(exp_bits * n / (2 * core_count)) - ln(window_size)
+    //
+    // Thus we need to solve the following equation:
+    // window_size + ln(window_size) = ln(exp_bits * n / (2 * core_count))
+    let lower_bound = (((exp_bits * n) as f64) / ((2 * core_count) as f64)).ln();
+    for w in 0..MAX_WINDOW_SIZE {
+        if (w as f64) + (w as f64).ln() > lower_bound {
+            return w;
+        }
+    }
+
+    MAX_WINDOW_SIZE
+}
 
 fn calc_best_chunk_size(max_window_size: usize, core_count: usize, exp_bits: usize) -> usize {
     // Best chunk-size (N) can also be calculated using the same logic as calc_window_size:
@@ -85,7 +85,7 @@ fn calc_best_chunk_size(max_window_size: usize, core_count: usize, exp_bits: usi
         .ceil() as usize
 }
 
-fn calc_chunk_size<E>(mem: u64, core_count: usize, max_window_size: usize) -> usize
+fn calc_chunk_size<E>(mem: u64, core_count: usize) -> usize
 where
     E: Engine,
 {
@@ -93,7 +93,7 @@ where
     let exp_size = exp_size::<E>();
     let proj_size = std::mem::size_of::<E::G1>() + std::mem::size_of::<E::G2>();
     ((((mem as f64) * (1f64 - MEMORY_PADDING)) as usize)
-        - (2 * core_count * ((1 << max_window_size) + 1) * proj_size))
+        - (2 * core_count * ((1 << MAX_WINDOW_SIZE) + 1) * proj_size))
         / (aff_size + exp_size)
 }
 
@@ -110,10 +110,9 @@ where
 
         let exp_bits = exp_size::<E>() * 8;
         let core_count = utils::get_core_count(&d);
-        let max_window_size = utils::get_max_window_size(&d);
         let mem = d.memory();
-        let max_n = calc_chunk_size::<E>(mem, core_count, max_window_size);
-        let best_n = calc_best_chunk_size(max_window_size, core_count, exp_bits);
+        let max_n = calc_chunk_size::<E>(mem, core_count);
+        let best_n = calc_best_chunk_size(MAX_WINDOW_SIZE, core_count, exp_bits);
         let n = std::cmp::min(max_n, best_n);
 
         Ok(SingleMultiexpKernel {
@@ -140,7 +139,7 @@ where
         }
 
         let exp_bits = exp_size::<E>() * 8;
-        let window_size = get_max_window_size(&self.device);
+        let window_size = calc_window_size(n, exp_bits, self.core_count);
         let num_windows = ((exp_bits as f64) / (window_size as f64)).ceil() as usize;
         let num_groups = calc_num_groups(self.core_count, num_windows);
         let bucket_len = 1 << window_size;
@@ -158,10 +157,10 @@ where
 
         let bucket_buffer = self
             .program
-            .create_buffer::<<G as CurveAffine>::Projective>(2 * self.core_count * bucket_len)?; // TODO: 4
+            .create_buffer::<<G as CurveAffine>::Projective>(2 * self.core_count * bucket_len)?;
         let result_buffer = self
             .program
-            .create_buffer::<<G as CurveAffine>::Projective>(2 * self.core_count)?; // TODO: 4
+            .create_buffer::<<G as CurveAffine>::Projective>(2 * self.core_count)?;
 
         // Make global work size divisible by `LOCAL_WORK_SIZE`
         let mut global_work_size = num_windows * num_groups;
@@ -310,14 +309,7 @@ where
                             .zip(self.kernels.par_iter_mut())
                             .map(|((bases, exps), kern)| -> Result<<G as CurveAffine>::Projective, GPUError> {
                                 let mut acc = <G as CurveAffine>::Projective::zero();
-                                let mut chunk = {
-                                    let mut chunk_size = utils::get_chunk_size(&kern.device);
-                                    if chunk_size == 0 {
-                                        chunk_size = kern.n
-                                    }
-
-                                    chunk_size
-                                };
+                                let mut chunk = kern.n;
                                 let size_result = std::mem::size_of::<<G as CurveAffine>::Projective>();
 
                                 if size_result > 144 {
@@ -326,7 +318,10 @@ where
                                     chunk = (chunk as f64 / 1.2f64).ceil() as usize;
                                 }
 
-                                for (bases, exps) in bases.chunks(chunk).zip(exps.chunks(chunk)) {
+                                for (bases, exps) in bases
+                                    .chunks(chunk)
+                                    .zip(exps.chunks(chunk))
+                                {
                                     let result = kern.multiexp(bases, exps, bases.len())?;
                                     acc.add_assign(&result);
                                 }

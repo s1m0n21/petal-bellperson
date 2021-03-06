@@ -53,47 +53,6 @@ lazy_static::lazy_static! {
 
         core_counts
     };
-
-    static ref MAX_WINDOW_SIZE: HashMap::<String, usize> = {
-        let mut max_window_size: HashMap<String, usize> = vec![
-            ("GeForce RTX 3090".to_string(), 12),
-            ("GeForce RTX 3080".to_string(), 11),
-            ("GeForce RTX 2080 Ti".to_string(), 11),
-        ].into_iter().collect();
-
-        match env::var("BELLMAN_MAX_WINDOW_SIZE").and_then(|var| {
-            for card in var.split(",") {
-                let splitted = card.split(":").collect::<Vec<_>>();
-                if splitted.len() != 2 { panic!("Invalid BELLMAN_MAX_WINDOW_SIZE!"); }
-                let name = splitted[0].trim().to_string();
-                let size : usize = splitted[1].trim().parse().expect("Invalid BELLMAN_MAX_WINDOW_SIZE!");
-                max_window_size.insert(name, size);
-             }
-            Ok(())
-        }) { Err(_) => { }, Ok(_) => { } }
-
-        max_window_size
-    };
-
-    static ref CHUNK_SIZE: HashMap::<String, usize> = {
-        let mut chunk_size: HashMap<String, usize> = vec![
-            ("GeForce RTX 3090".to_string(), 67108864),
-            ("GeForce RTX 3080".to_string(), 33554466),
-        ].into_iter().collect();
-
-        match env::var("BELLMAN_CHUNK_SIZE").and_then(|var| {
-            for card in var.split(",") {
-                let splitted = card.split(":").collect::<Vec<_>>();
-                if splitted.len() != 2 { panic!("Invalid BELLMAN_CHUNK_SIZE!"); }
-                let name = splitted[0].trim().to_string();
-                let size: usize = splitted[1].trim().parse().expect("Invalid BELLMAN_CHUNK_SIZE!");
-                chunk_size.insert(name, size);
-            }
-            Ok(())
-        }) { Err(_) => { }, Ok(_) => { } }
-
-        chunk_size
-    };
 }
 
 const DEFAULT_CORE_COUNT: usize = 2560;
@@ -110,35 +69,6 @@ pub fn get_core_count(d: &opencl::Device) -> usize {
                 name
             );
             DEFAULT_CORE_COUNT
-        }
-    }
-}
-
-const DEFAULT_MAX_WINDOW_SIZE: usize = 10;
-pub fn get_max_window_size(d: &opencl::Device) -> usize {
-    let name = d.name();
-    match MAX_WINDOW_SIZE.get(&name[..]) {
-        Some(&w) => {
-            info!("max_window_size: {}", w);
-            w
-        },
-        None => {
-            warn!("use default max window size");
-            DEFAULT_MAX_WINDOW_SIZE
-        }
-    }
-}
-
-pub fn get_chunk_size(d: &opencl::Device) -> usize {
-    let name = d.name();
-    match CHUNK_SIZE.get(&name[..]) {
-        Some(&chunk_size) => {
-            info!("chunk_size: {}", chunk_size);
-            chunk_size
-        },
-        None => {
-            warn!("use default chunk size");
-            0
         }
     }
 }
